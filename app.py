@@ -3,12 +3,17 @@ import os
 import time
 import google.generativeai as genai
 from werkzeug.utils import secure_filename
-
+import tempfile
+import os
 app = Flask(__name__)
 app.secret_key = 'your-secret-key-here'  # Change this to a secure secret key
 
 # Configure Google Gemini AI
-genai.configure(api_key="AIzaSyA5MdL4xpcqiIZv3c_JmXLXTrIMl3hPLlw")
+# genai.configure(api_key="AIzaSyA5MdL4xpcqiIZv3c_JmXLXTrIMl3hPLlw")
+app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key')
+
+# Configure Google Gemini AI
+genai.configure(api_key=os.environ.get('GEMINI_API_KEY'))
 
 # Configure upload folder
 UPLOAD_FOLDER = 'uploads'
@@ -57,6 +62,36 @@ def index():
     return render_template('index.html')
 
 @app.route('/upload', methods=['POST'])
+# def upload_video():
+#     if 'video' not in request.files:
+#         return jsonify({'error': 'No video file provided'}), 400
+    
+#     file = request.files['video']
+#     if file.filename == '':
+#         return jsonify({'error': 'No selected file'}), 400
+    
+#     if file and allowed_file(file.filename):
+#         filename = secure_filename(file.filename)
+#         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+#         file.save(filepath)
+        
+#         try:
+#             # Upload to Gemini
+#             gemini_file = upload_to_gemini(filepath, mime_type="video/mp4")
+#             wait_for_files_active([gemini_file])
+            
+#             # Store the file URI in session
+#             session['video_file_uri'] = gemini_file.uri
+#             session['video_file_name'] = gemini_file.name
+            
+#             return jsonify({'message': 'Video processed successfully'}), 200
+#         except Exception as e:
+#             return jsonify({'error': str(e)}), 500
+    
+#     return jsonify({'error': 'Invalid file type'}), 400
+
+
+@app.route('/upload', methods=['POST'])
 def upload_video():
     if 'video' not in request.files:
         return jsonify({'error': 'No video file provided'}), 400
@@ -66,25 +101,27 @@ def upload_video():
         return jsonify({'error': 'No selected file'}), 400
     
     if file and allowed_file(file.filename):
-        filename = secure_filename(file.filename)
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(filepath)
-        
         try:
-            # Upload to Gemini
-            gemini_file = upload_to_gemini(filepath, mime_type="video/mp4")
-            wait_for_files_active([gemini_file])
-            
-            # Store the file URI in session
-            session['video_file_uri'] = gemini_file.uri
-            session['video_file_name'] = gemini_file.name
-            
-            return jsonify({'message': 'Video processed successfully'}), 200
+            # Create temporary file
+            with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+                file.save(temp_file.name)
+                
+                # Upload to Gemini
+                gemini_file = upload_to_gemini(temp_file.name, mime_type="video/mp4")
+                wait_for_files_active([gemini_file])
+                
+                # Store the file URI in session
+                session['video_file_uri'] = gemini_file.uri
+                session['video_file_name'] = gemini_file.name
+                
+                # Clean up temp file
+                os.unlink(temp_file.name)
+                
+                return jsonify({'message': 'Video processed successfully'}), 200
         except Exception as e:
             return jsonify({'error': str(e)}), 500
     
     return jsonify({'error': 'Invalid file type'}), 400
-
 @app.route('/ask', methods=['POST'])
 def ask_question():
     if 'video_file_uri' not in session or 'video_file_name' not in session:
@@ -116,4 +153,5 @@ def ask_question():
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
